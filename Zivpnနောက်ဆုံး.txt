@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ZIVPN Telegram Bot - GitHub Version
+ZIVPN Telegram Bot - Unlimited Users Version
 """
 import telegram
 from telegram.ext import Updater, CommandHandler, MessageHandler, filters
@@ -142,9 +142,16 @@ def admin_command(update, context):
         update.message.reply_text("❌ Admin only command")
         return
     
+    # Get total user count
+    db = get_db()
+    total_users = db.execute('SELECT COUNT(*) as count FROM users').fetchone()['count']
+    active_users = db.execute('SELECT COUNT(*) as count FROM users WHERE status = "active"').fetchone()['count']
+    db.close()
+    
     admin_text = f"""
 🛠️ *Admin Panel*
 🌐 Server IP: `{get_server_ip()}`
+📊 Total Users: *{total_users}* (Active: *{active_users}*)
 
 *User Management:*
 • /adduser <user> <pass> [days] - Add new user
@@ -527,38 +534,59 @@ def stats_command(update, context):
         db.close()
 
 def users_command(update, context):
-    """List all users with passwords - ADMIN ONLY"""
+    """List all users with passwords - ADMIN ONLY (NO LIMIT)"""
     if not is_admin(update.effective_user.id):
         update.message.reply_text("❌ Admin only command")
         return
         
     db = get_db()
     try:
+        # NO LIMIT - show ALL users
         users = db.execute('''
             SELECT username, password, status, expires, bandwidth_used, concurrent_conn
             FROM users
             ORDER BY created_at DESC
-            LIMIT 20
-        ''').fetchall()
+        ''').fetchall()  # NO LIMIT 20
         
         if not users:
             update.message.reply_text("📭 No users found")
             return
+        
+        total_users = len(users)
+        users_text = f"👥 *All Users ({total_users})*\n\n"
+        
+        # If too many users, split into chunks
+        if total_users > 50:
+            # Show first 50 users with summary
+            for i, user in enumerate(users[:50]):
+                status_icon = "🟢" if user['status'] == 'active' else "🔴"
+                bandwidth = format_bytes(user['bandwidth_used'] or 0)
+                users_text += f"{status_icon} *{user['username']}*\n"
+                users_text += f"🔐 Password: `{user['password']}`\n"
+                users_text += f"📊 Status: {user['status']}\n"
+                users_text += f"📦 Bandwidth: {bandwidth}\n"
+                if user['expires']:
+                    users_text += f"⏰ Expires: {user['expires']}\n"
+                users_text += "\n"
             
-        users_text = "👥 *Recent Users (Last 20)*\n\n"
-        for user in users:
-            status_icon = "🟢" if user['status'] == 'active' else "🔴"
-            bandwidth = format_bytes(user['bandwidth_used'] or 0)
-            users_text += f"{status_icon} *{user['username']}*\n"
-            users_text += f"🔐 Password: `{user['password']}`\n"
-            users_text += f"📊 Status: {user['status']}\n"
-            users_text += f"📦 Bandwidth: {bandwidth}\n"
-            users_text += f"🔗 Connections: {user['concurrent_conn']}\n"
-            if user['expires']:
-                users_text += f"⏰ Expires: {user['expires']}\n"
-            users_text += "\n"
-            
+            users_text += f"📋 *Showing 50 out of {total_users} users*\n"
+            users_text += "💡 Use /myinfo <username> for specific user details"
+        else:
+            # Show all users
+            for user in users:
+                status_icon = "🟢" if user['status'] == 'active' else "🔴"
+                bandwidth = format_bytes(user['bandwidth_used'] or 0)
+                users_text += f"{status_icon} *{user['username']}*\n"
+                users_text += f"🔐 Password: `{user['password']}`\n"
+                users_text += f"📊 Status: {user['status']}\n"
+                users_text += f"📦 Bandwidth: {bandwidth}\n"
+                users_text += f"🔗 Connections: {user['concurrent_conn']}\n"
+                if user['expires']:
+                    users_text += f"⏰ Expires: {user['expires']}\n"
+                users_text += "\n"
+        
         update.message.reply_text(users_text, parse_mode='Markdown')
+        
     except Exception as e:
         logger.error(f"Error getting users: {e}")
         update.message.reply_text("❌ Error retrieving users list")

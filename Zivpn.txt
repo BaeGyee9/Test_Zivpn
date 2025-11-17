@@ -487,7 +487,7 @@ def reset_command(update, context):
         logger.info(f"User {username} expiry reset to {days} days by admin {update.effective_user.id}")
         
     except Exception as e:
-        logger.error(f"Error resetting user: {e})
+        logger.error(f"Error resetting user: {e}")
         update.message.reply_text("❌ Error resetting user")
     finally:
         db.close()
